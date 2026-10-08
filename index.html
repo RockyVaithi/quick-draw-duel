@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Quick Draw Duel</title>
+<meta name="description" content="A fast multiplayer reflex duel. Wait for DRAW, tap first, don't get fooled.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rye&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{
+  --bg:#17120e; --bg2:#221a14; --card:#2a2019; --line:#4a3a2c;
+  --text:#f5e9d8; --muted:#b9a68f; --sand:#e8b86b; --rust:#d2603a;
+  --go:#36e27a; --hold:#ffb020; --bad:#ff4d4d;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:radial-gradient(120% 80% at 50% 0%,#2e2117 0%,var(--bg) 60%);color:var(--text);
+  font-family:"Space Grotesk",system-ui,sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.screen{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;gap:18px;text-align:center}
+.screen.on{display:flex}
+h1{font-family:Rye,serif;font-weight:400;font-size:clamp(40px,11vw,76px);line-height:.95;color:var(--sand);
+  text-shadow:0 3px 0 #7a4a1f,0 10px 30px rgba(232,184,107,.25)}
+.tag{color:var(--muted);font-size:15px;max-width:340px}
+.box{width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px}
+input{width:100%;background:var(--card);border:2px solid var(--line);color:var(--text);border-radius:14px;
+  padding:14px 16px;font:500 18px "Space Grotesk",sans-serif;outline:none;text-align:center}
+input:focus{border-color:var(--sand)}
+input.code{letter-spacing:.35em;text-transform:uppercase;font-weight:700}
+button{border:0;border-radius:14px;padding:15px 18px;font:700 17px "Space Grotesk",sans-serif;cursor:pointer;
+  background:var(--sand);color:#2a1a0c;box-shadow:0 4px 0 #9a6a2a;transition:transform .05s}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 #9a6a2a}
+button.ghost{background:transparent;color:var(--text);border:2px solid var(--line);box-shadow:none}
+button:disabled{opacity:.45;pointer-events:none}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.or{color:var(--muted);font-size:13px;letter-spacing:.2em}
+.err{color:var(--bad);min-height:20px;font-size:14px}
+.rules{background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:14px 16px;text-align:left;
+  font-size:14px;color:var(--muted);max-width:360px;line-height:1.55}
+.rules b{color:var(--text)}
+.codebig{font:700 44px "Space Grotesk";letter-spacing:.3em;color:var(--sand);padding-left:.3em}
+.players{width:100%;max-width:360px;display:flex;flex-direction:column;gap:8px}
+.pl{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:10px 14px;font-weight:500}
+.pl .s{font-weight:700;color:var(--sand)}
+.pl.me{border-color:var(--sand)}
+.small{font-size:13px;color:var(--muted)}
+/* arena */
+#arena{justify-content:space-between;cursor:pointer;transition:background .06s}
+#arena.go{background:var(--go)} #arena.hold{background:var(--hold)} #arena.foul{background:var(--bad)}
+.hud{width:100%;max-width:520px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.chip{background:rgba(0,0,0,.35);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:500}
+.chip b{color:var(--sand)}
+#arena.go .chip b,#arena.hold .chip b{color:#fff}
+#sig{font-family:Rye,serif;font-size:clamp(56px,18vw,140px);line-height:1}
+#sub{font-size:18px;color:var(--muted);min-height:26px}
+#arena.go #sig,#arena.go #sub,#arena.hold #sig,#arena.hold #sub,#arena.foul #sig,#arena.foul #sub{color:#14110f}
+.res{width:100%;max-width:360px;display:flex;flex-direction:column;gap:6px}
+.res .pl.win{border-color:var(--go);background:#1f3524}
+.res .pl.fl{opacity:.6}
+.crown{font-size:64px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--card);border:1px solid var(--line);
+  padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- HOME -->
+<section id="home" class="screen on">
+  <h1>Quick<br>Draw Duel</h1>
+  <p class="tag">Wait for <b style="color:var(--go)">DRAW!</b> — tap first. Flinch on a fake-out and you're out.</p>
+  <div class="box">
+    <input id="name" maxlength="14" placeholder="Your name" autocomplete="off">
+    <button id="btnCreate">Create room</button>
+    <div class="or">— OR —</div>
+    <div class="row"><input id="joinCode" class="code" maxlength="4" placeholder="CODE" autocomplete="off"><button id="btnJoin">Join</button></div>
+    <button id="btnSolo" class="ghost">Practice solo</button>
+    <div class="err" id="homeErr"></div>
+  </div>
+  <div class="rules">
+    <b>How to play</b><br>
+    1. Everyone watches the screen. It turns <b style="color:var(--hold)">yellow (HOLD)</b> to trick you — don't tap.<br>
+    2. When it turns <b style="color:var(--go)">green (DRAW!)</b>, tap anywhere (or press Space) as fast as you can.<br>
+    3. Fastest tap wins the round. Tapping early = <b style="color:var(--bad)">foul</b>, no point.<br>
+    4. First to <b>5 points</b> wins the duel. 2–8 players.
+  </div>
+</section>
+
+<!-- LOBBY -->
+<section id="lobby" class="screen">
+  <div class="small">ROOM CODE</div>
+  <div class="codebig" id="lobbyCode">----</div>
+  <div class="row" style="width:100%;max-width:360px">
+    <button class="ghost" id="btnCopy">Copy invite link</button>
+  </div>
+  <div class="small" id="lobbyNote">Share the code or link. Friends join from any phone or laptop.</div>
+  <div class="players" id="lobbyPlayers"></div>
+  <div class="box">
+    <button id="btnStart" disabled>Start duel</button>
+    <button class="ghost" id="btnLeave">Leave</button>
+  </div>
+</section>
+
+<!-- ARENA -->
+<section id="arena" class="screen">
+  <div class="hud" id="hud"></div>
+  <div>
+    <div id="sig">Ready…</div>
+    <div id="sub">Wait for green</div>
+  </div>
+  <div class="small" id="roundNo">Round 1 · first to 5</div>
+</section>
+
+<!-- RESULT -->
+<section id="result" class="screen">
+  <div class="small" id="resRound">ROUND 1</div>
+  <h1 id="resTitle" style="font-size:clamp(34px,9vw,56px)">—</h1>
+  <div class="res" id="resList"></div>
+  <div class="small" id="resNext">Next round in 3…</div>
+</section>
+
+<!-- OVER -->
+<section id="over" class="screen">
+  <div class="crown">🏆</div>
+  <h1 id="overTitle">Winner</h1>
+  <div class="small" id="overSub"></div>
+  <div class="res" id="overList"></div>
+  <div class="box">
+    <button id="btnRematch">Rematch</button>
+    <button class="ghost" id="btnHome">Back to menu</button>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const TARGET = 5, MAXP = 8, PREFIX = 'qdd-v1-';
+const store = {get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+
+/* ---------- audio ---------- */
+let actx;
+function beep(f, d=.08, type='square', v=.15){
+  try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)();
+    const o=actx.createOscillator(), g=actx.createGain(); o.type=type; o.frequency.value=f;
+    g.gain.setValueAtTime(v,actx.currentTime); g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+d);
+    o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime+d);}catch(e){}
+}
+const buzz = ms => { try{ navigator.vibrate && navigator.vibrate(ms) }catch(e){} };
+
+/* ---------- ui helpers ---------- */
+function show(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('on', s.id===id)); }
+function toast(t){ const el=$('toast'); el.textContent=t; el.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(()=>el.classList.remove('on'),2200); }
+const esc = s => String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cleanName = n => (String(n||'').trim().slice(0,14) || 'Player');
+
+/* ---------- state ---------- */
+let me = { id: null, name: '' };
+let isHost = false, solo = false, peer = null, hostConn = null;
+const conns = new Map();         // host: peerId -> DataConnection
+let S = null;                    // authoritative game state (host) / mirror (client)
+let local = { round: 0, phase: 'idle', t0: 0, timers: [], shot: false };
+
+$('name').value = store.get('qdd-name') || '';
+const params = new URLSearchParams(location.search);
+if (params.get('room')) $('joinCode').value = params.get('room').toUpperCase().slice(0,4);
+
+function newCode(){ const a='ABCDEFGHJKMNPQRSTUVWXYZ23456789'; let s=''; for(let i=0;i<4;i++) s+=a[Math.floor(Math.random()*a.length)]; return s; }
+function getName(){ const n = cleanName($('name').value); store.set('qdd-name', n); return n; }
+
+/* ---------- host engine ---------- */
+function freshState(code){ return { code, phase:'lobby', round:0, players:[], seq:null, results:null, winner:null }; }
+function addPlayer(id, name){ if(!S.players.find(p=>p.id===id)) S.players.push({id, name:cleanName(name), score:0, best:null}); }
+function broadcast(){
+  const msg = { t:'state', s:S };
+  conns.forEach(c => { try{ c.open && c.send(msg) }catch(e){} });
+  onState(S);
+}
+function startRound(){
+  S.round++; S.phase='round'; S.results={};
+  const delay = 1800 + Math.random()*3200;
+  const decoys = [];
+  if (Math.random() < .6){ const n = Math.random()<.35 ? 2 : 1;
+    for(let i=0;i<n;i++) decoys.push(500 + Math.random()*(delay-900)); decoys.sort((a,b)=>a-b); }
+  S.seq = { delay: Math.round(delay), decoys: decoys.map(Math.round), id: Math.random().toString(36).slice(2,8) };
+  broadcast();
+  clearTimeout(startRound.t);
+  startRound.t = setTimeout(endRound, S.seq.delay + 3500);
+}
+function handleShot(pid, data){
+  if (!S || S.phase!=='round' || data.round!==S.round || S.results[pid]) return;
+  const ms = (typeof data.ms==='number' && data.ms>=60 && data.ms<5000) ? Math.round(data.ms) : null;
+  S.results[pid] = data.foul ? {foul:true} : (ms===null ? {miss:true} : {ms});
+  if (S.players.every(p => S.results[p.id])) { clearTimeout(startRound.t); setTimeout(endRound, 250); }
+}
+function endRound(){
+  if (!S || S.phase!=='round') return;
+  let win=null;
+  S.players.forEach(p=>{ const r=S.results[p.id]||(S.results[p.id]={miss:true});
+    if (r.ms && (!win || r.ms < S.results[win].ms)) win=p.id;
+    if (r.ms && (p.best===null || r.ms<p.best)) p.best=r.ms; });
+  if (win) S.players.find(p=>p.id===win).score++;
+  S.roundWinner = win;
+  const champ = S.players.find(p=>p.score>=TARGET);
+  if (champ){ S.phase='over'; S.winner=champ.id; broadcast(); return; }
+  S.phase='result'; broadcast();
+  clearTimeout(endRound.t); endRound.t=setTimeout(()=>{ if(S && S.phase==='result') startRound(); }, 3200);
+}
+function rematch(){ S.players.forEach(p=>{p.score=0}); S.round=0; S.winner=null; startRound(); }
+function removePlayer(id){
+  if(!S) return; S.players = S.players.filter(p=>p.id!==id);
+  if (S.results) delete S.results[id];
+  if (S.phase!=='lobby' && S.players.length<2 && !solo){ S.phase='lobby'; S.round=0; S.players.forEach(p=>p.score=0); clearTimeout(startRound.t); clearTimeout(endRound.t); toast('Not enough players — back to lobby'); }
+  broadcast();
+}
+
+/* ---------- networking ---------- */
+function createRoom(tries=0){
+  me.name = getName(); $('homeErr').textContent='Opening room…';
+  const code = newCode();
+  peer = new Peer(PREFIX+code, { debug:0 });
+  peer.on('open', () => {
+    isHost=true; solo=false; me.id='host';
+    S = freshState(code); addPlayer('host', me.name);
+    $('homeErr').textContent=''; history.replaceState(null,'','?room='+code); broadcast();
+  });
+  peer.on('connection', c => {
+    c.on('data', d => {
+      if (!d || typeof d!=='object') return;
+      if (d.t==='hello'){
+        if (S.phase!=='lobby'){ c.send({t:'deny', why:'Duel already in progress — wait for the next one.'}); setTimeout(()=>c.close(),300); return; }
+        if (S.players.length>=MAXP){ c.send({t:'deny', why:'Room is full (8 players).'}); setTimeout(()=>c.close(),300); return; }
+        conns.set(c.peer, c); addPlayer(c.peer, d.name); toast(cleanName(d.name)+' joined'); beep(660,.06); broadcast();
+      } else if (d.t==='shot'){ handleShot(c.peer, d); }
+    });
+    c.on('close', () => { if(conns.delete(c.peer)){ const p=S&&S.players.find(x=>x.id===c.peer); if(p) toast(p.name+' left'); removePlayer(c.peer);} });
+  });
+  peer.on('error', e => {
+    if (e.type==='unavailable-id' && tries<4){ peer.destroy(); return createRoom(tries+1); }
+    $('homeErr').textContent = 'Connection problem: '+(e.type||e.message||e);
+  });
+}
+function joinRoom(){
+  const code = $('joinCode').value.trim().toUpperCase();
+  if (code.length!==4){ $('homeErr').textContent='Enter the 4-letter room code'; return; }
+  me.name = getName(); $('homeErr').textContent='Joining '+code+'…';
+  peer = new Peer({ debug:0 });
+  peer.on('open', id => {
+    me.id = id; isHost=false;
+    hostConn = peer.connect(PREFIX+code, { reliable:true });
+    hostConn.on('open', () => { hostConn.send({t:'hello', name:me.name}); $('homeErr').textContent=''; history.replaceState(null,'','?room='+code); });
+    hostConn.on('data', d => {
+      if (d && d.t==='state') onState(d.s);
+      else if (d && d.t==='deny'){ $('homeErr').textContent=d.why; leave(true); }
+    });
+    hostConn.on('close', () => { if (peer){ toast('Host closed the room'); leave(); } });
+  });
+  peer.on('error', e => {
+    $('homeErr').textContent = e.type==='peer-unavailable' ? 'Room '+code+' not found. Check the code.' : 'Connection problem: '+(e.type||e.message||e);
+    if (e.type==='peer-unavailable') leave(true);
+  });
+}
+function startSolo(){
+  me.name=getName(); me.id='host'; isHost=true; solo=true;
+  S = freshState('SOLO'); addPlayer('host', me.name); startRound();
+}
+function sendShot(data){
+  data.round = local.round;
+  if (isHost) handleShot(me.id, data); else if (hostConn && hostConn.open) hostConn.send(Object.assign({t:'shot'}, data));
+}
+function leave(keepErr){
+  clearLocal(); clearTimeout(startRound.t); clearTimeout(endRound.t);
+  conns.forEach(c=>{try{c.close()}catch(e){}}); conns.clear();
+  try{ hostConn && hostConn.close() }catch(e){} hostConn=null;
+  const p=peer; peer=null; try{ p && p.destroy() }catch(e){}
+  S=null; isHost=false; solo=false; local.round=0;
+  if(!keepErr) $('homeErr').textContent='';
+  history.replaceState(null,'',location.pathname); show('home');
+}
+
+/* ---------- rendering from state ---------- */
+function onState(s){
+  S = s;
+  if (s.phase==='lobby') renderLobby();
+  else if (s.phase==='round') { if (local.round!==s.round || local.seqId!==s.seq.id) beginLocalRound(s); }
+  else if (s.phase==='result') renderResult();
+  else if (s.phase==='over') renderOver();
+}
+function plRow(p, extra=''){ return `<div class="pl ${p.id===me.id?'me':''} ${extra}"><span>${esc(p.name)}${p.id===me.id?' (you)':''}${p.id==='host'&&!solo?' ★':''}</span>`; }
+function renderLobby(){
+  clearLocal(); show('lobby');
+  $('lobbyCode').textContent = S.code;
+  $('lobbyPlayers').innerHTML = S.players.map(p=>plRow(p)+`<span class="small">ready</span></div>`).join('');
+  $('btnStart').style.display = isHost ? '' : 'none';
+  $('btnStart').disabled = S.players.length<2;
+  $('btnStart').textContent = S.players.length<2 ? 'Waiting for a friend…' : `Start duel (${S.players.length} players)`;
+  $('lobbyNote').textContent = isHost ? 'Share the code or link. Friends join from any phone or laptop.' : 'Waiting for the host to start…';
+}
+function hud(){
+  $('hud').innerHTML = S.players.map(p=>`<span class="chip">${esc(p.name)} <b>${p.score}</b></span>`).join('');
+  $('roundNo').textContent = `Round ${S.round} · first to ${TARGET}`;
+}
+function clearLocal(){ local.timers.forEach(clearTimeout); local.timers=[]; local.phase='idle'; $('arena').className='screen'+($('arena').classList.contains('on')?' on':''); }
+function setArena(cls, sig, sub){ const a=$('arena'); a.classList.remove('go','hold','foul'); if(cls) a.classList.add(cls); $('sig').textContent=sig; $('sub').textContent=sub; }
+function beginLocalRound(s){
+  clearLocal(); local.round=s.round; local.seqId=s.seq.id; local.shot=false; local.phase='wait';
+  show('arena'); hud(); setArena(null,'Ready…','Wait for green');
+  s.seq.decoys.forEach(t => local.timers.push(setTimeout(()=>{
+    if(local.phase!=='wait') return; setArena('hold','HOLD','Not yet…'); beep(220,.1,'triangle',.12);
+    local.timers.push(setTimeout(()=>{ if(local.phase==='wait') setArena(null,'Ready…','Wait for green'); }, 380));
+  }, t)));
+  local.timers.push(setTimeout(()=>{
+    if(local.phase!=='wait') return;
+    local.phase='go'; local.t0=performance.now(); setArena('go','DRAW!','TAP!'); beep(880,.12,'square',.2);
+  }, s.seq.delay));
+  local.timers.push(setTimeout(()=>{ if(local.phase==='go'){ local.phase='done'; setArena(null,'Too slow','Waiting for others…'); sendShot({miss:true}); } }, s.seq.delay+3000));
+}
+function fire(e){
+  if (!$('arena').classList.contains('on')) return;
+  if (e && e.type==='pointerdown') e.preventDefault();
+  if (local.phase==='wait'){
+    local.phase='done'; setArena('foul','FOUL!','Too early — no point this round'); beep(120,.25,'sawtooth',.2); buzz(200);
+    sendShot({foul:true});
+  } else if (local.phase==='go'){
+    const ms = performance.now()-local.t0; local.phase='done';
+    setArena(null, Math.round(ms)+' ms', 'Waiting for others…'); beep(1200,.05); buzz(30);
+    const best = +store.get('qdd-best')||0; if(!best || ms<best){ store.set('qdd-best', Math.round(ms)); }
+    sendShot({ms});
+  }
+}
+$('arena').addEventListener('pointerdown', fire);
+document.addEventListener('keydown', e => { if (e.code==='Space' || e.key===' ') { e.preventDefault(); fire(e); } });
+
+function resultRows(sorted, final){
+  return sorted.map((p,i)=>{
+    const r = (S.results||{})[p.id]||{};
+    const w = final ? p.id===S.winner : p.id===S.roundWinner;
+    const right = final ? `<span class="s">${p.score} pts${p.best?` · best ${p.best}ms`:''}</span>`
+      : `<span class="s">${r.foul?'FOUL':r.ms?r.ms+' ms':'—'} · ${p.score}</span>`;
+    return plRow(p, (w?'win':'')+(r.foul&&!final?' fl':'')) + right + '</div>';
+  }).join('');
+}
+function renderResult(){
+  clearLocal(); show('result');
+  $('resRound').textContent = 'ROUND '+S.round;
+  const w = S.players.find(p=>p.id===S.roundWinner);
+  $('resTitle').textContent = w ? (w.id===me.id ? 'You got it!' : w.name+' wins') : 'Nobody scored';
+  if (w && w.id===me.id) beep(990,.15,'triangle',.18);
+  const order = r => r.ms || (r.foul ? 99998 : 99999);
+  const sorted = [...S.players].sort((a,b)=>order(S.results[a.id]||{})-order(S.results[b.id]||{}));
+  $('resList').innerHTML = resultRows(sorted,false);
+  let n=3; $('resNext').textContent = `Next round in ${n}…`;
+  const iv=setInterval(()=>{ n--; if(n<=0||!$('result').classList.contains('on')) return clearInterval(iv); $('resNext').textContent=`Next round in ${n}…`; },1000);
+}
+function renderOver(){
+  clearLocal(); show('over');
+  const w = S.players.find(p=>p.id===S.winner);
+  $('overTitle').textContent = w ? (w.id===me.id ? 'You win!' : w.name+' wins!') : 'Game over';
+  const best = store.get('qdd-best');
+  $('overSub').textContent = solo ? `Your all-time best: ${best||'—'} ms` : `Fastest draw in the West · your best ever: ${best||'—'} ms`;
+  $('overList').innerHTML = resultRows([...S.players].sort((a,b)=>b.score-a.score), true);
+  $('btnRematch').style.display = isHost ? '' : 'none';
+  if (w && w.id===me.id){ [660,880,1100].forEach((f,i)=>setTimeout(()=>beep(f,.14,'triangle',.18),i*130)); }
+}
+
+/* ---------- buttons ---------- */
+$('btnCreate').onclick = () => { if (typeof Peer==='undefined'){ $('homeErr').textContent='Network library failed to load — check your connection.'; return; } createRoom(); };
+$('btnJoin').onclick = () => { if (typeof Peer==='undefined'){ $('homeErr').textContent='Network library failed to load — check your connection.'; return; } joinRoom(); };
+$('joinCode').addEventListener('keydown', e => { if(e.key==='Enter') $('btnJoin').click(); });
+$('btnSolo').onclick = startSolo;
+$('btnStart').onclick = () => { if(isHost && S.players.length>=2) startRound(); };
+$('btnLeave').onclick = () => leave();
+$('btnHome').onclick = () => leave();
+$('btnRematch').onclick = () => { if(isHost) rematch(); };
+$('btnCopy').onclick = async () => {
+  const url = location.origin + location.pathname + '?room=' + (S&&S.code);
+  try{ if (navigator.share) { await navigator.share({title:'Quick Draw Duel', text:'Duel me! Room '+S.code, url}); return; }
+       await navigator.clipboard.writeText(url); toast('Invite link copied'); }
+  catch(e){ toast(url); }
+};
+window.addEventListener('beforeunload', () => { try{ peer && peer.destroy() }catch(e){} });
+})();
+</script>
+</body>
+</html>
